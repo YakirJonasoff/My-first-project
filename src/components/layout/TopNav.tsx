@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, Instagram, Music2, TrendingUp, Target } from 'lucide-react'
+import { BarChart3, Instagram, Music2, TrendingUp, Target, Users } from 'lucide-react'
 import clsx from 'clsx'
 
 const NAV_ITEMS = [
@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: '/instagram',  label: 'Instagram & FB',  icon: Instagram },
   { href: '/tiktok',     label: 'TikTok Organic',  icon: Music2 },
   { href: '/paid',       label: 'Paid Campaigns',  icon: Target },
+  { href: '/clients',    label: 'Clients',         icon: Users },
 ]
 
 export default function TopNav() {

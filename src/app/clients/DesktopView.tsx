@@ -21,25 +21,26 @@ import {
   Send,
   Settings,
   ArrowUpDown,
-  Tag as TagIcon,
+  Trash2,
   User as UserIcon,
 } from 'lucide-react'
 import {
   ACTIVITY_BY_CLIENT,
   ACTIVITY_DEFAULT,
-  CLIENTS,
   INVOICES_BY_CLIENT,
   INVOICES_DEFAULT,
   INVOICE_STATUS,
   ORDERS_BY_CLIENT,
   ORDER_STATUS,
-  PERSONAL,
   RECEIPTS_BY_CLIENT,
   RECEIPTS_DEFAULT,
   TAG_COLOR,
   TAG_HE,
-  type Client,
 } from '@/data/clientsMockData'
+import { useClientsStore, type StoredClient } from '@/hooks/useClientsStore'
+import NewClientDialog from './NewClientDialog'
+import { EditableText, EditableNumber } from './EditableField'
+import EditableTags from './EditableTags'
 
 type View = 'all' | 'late' | 'new' | 'vip'
 type DetailTab = 'general' | 'invoices' | 'receipts' | 'orders' | 'notes' | 'activity'
@@ -48,7 +49,7 @@ const fmt = (n: number) => new Intl.NumberFormat('he-IL').format(n)
 const moneyClass = (n: number) => (n > 0 ? 'pos' : n < 0 ? 'neg' : 'zero')
 const moneyText = (n: number) =>
   n === 0 ? '₪0' : n < 0 ? '−₪' + fmt(Math.abs(n)) : '+₪' + fmt(n)
-const fullName = (c: Client) => `${c.firstName} ${c.lastName}`.trim()
+const fullName = (c: StoredClient) => `${c.firstName} ${c.lastName}`.trim()
 
 function avatarHue(id: string) {
   let h = 0
@@ -98,15 +99,17 @@ function Pill({ kind, children }: { kind: 'g' | 'b' | 'y' | 'r' | 'n'; children:
 }
 
 export default function DesktopView() {
+  const { clients } = useClientsStore()
   const [openId, setOpenId] = useState<string | null>(null)
-  const [previewId, setPreviewId] = useState<string>(CLIENTS[0].id)
+  const [previewId, setPreviewId] = useState<string | null>(null)
   const [view, setView] = useState<View>('all')
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<DetailTab>('general')
+  const [showNew, setShowNew] = useState(false)
 
   const filtered = useMemo(() => {
-    let r = CLIENTS
+    let r = clients
     if (view === 'late') r = r.filter((c) => c.balance < 0 && c.tags.includes('late'))
     if (view === 'new') r = r.filter((c) => c.tags.includes('new'))
     if (view === 'vip') r = r.filter((c) => c.tags.includes('vip'))
@@ -123,7 +126,13 @@ export default function DesktopView() {
       )
     }
     return r
-  }, [view, q])
+  }, [clients, view, q])
+
+  // Keep previewId valid as the list changes.
+  const effectivePreviewId = useMemo(() => {
+    if (previewId && filtered.some((c) => c.id === previewId)) return previewId
+    return filtered[0]?.id ?? null
+  }, [previewId, filtered])
 
   const toggleSel = (id: string) => {
     setSelected((s) => {
@@ -140,12 +149,12 @@ export default function DesktopView() {
     )
   }
 
-  const openClient = openId ? CLIENTS.find((c) => c.id === openId) : null
+  const openClient = openId ? clients.find((c) => c.id === openId) : null
 
   return (
     <div className="dt-root">
       <div className="shell">
-        <Sidebar total={CLIENTS.length} />
+        <Sidebar total={clients.length} clients={clients} />
         <div className="shell-main">
           <TopBar
             inDetail={!!openClient}
@@ -160,13 +169,14 @@ export default function DesktopView() {
                   setQ={setQ}
                   view={view}
                   setView={setView}
-                  total={CLIENTS.length}
+                  total={clients.length}
                   selectedCount={selected.size}
+                  onNew={() => setShowNew(true)}
                 />
                 <div className="split">
                   <ClientsTable
                     clients={filtered}
-                    previewId={previewId}
+                    previewId={effectivePreviewId}
                     onSelect={(id) => setPreviewId(id)}
                     onOpen={(id) => {
                       setOpenId(id)
@@ -177,7 +187,7 @@ export default function DesktopView() {
                     toggleAll={toggleAll}
                   />
                   <ClientPreview
-                    id={previewId}
+                    id={effectivePreviewId}
                     onOpen={(id) => {
                       setOpenId(id)
                       setTab('general')
@@ -192,18 +202,32 @@ export default function DesktopView() {
                 </div>
               </>
             ) : (
-              <ClientDetail client={openClient} tab={tab} onTabChange={setTab} />
+              <ClientDetail
+                client={openClient}
+                tab={tab}
+                onTabChange={setTab}
+                onDeleted={() => setOpenId(null)}
+              />
             )}
           </div>
         </div>
       </div>
+
+      <NewClientDialog
+        open={showNew}
+        onClose={() => setShowNew(false)}
+        onCreated={(id) => {
+          setPreviewId(id)
+          setShowNew(false)
+        }}
+      />
     </div>
   )
 }
 
 // ─── Sidebar ────────────────────────────────────────────────────────────
 
-function Sidebar({ total }: { total: number }) {
+function Sidebar({ total, clients }: { total: number; clients: StoredClient[] }) {
   const items = [
     { icon: Home, label: 'דשבורד' },
     { icon: UserIcon, label: 'לקוחות', count: total, active: true },
@@ -212,10 +236,22 @@ function Sidebar({ total }: { total: number }) {
     { icon: Inbox, label: 'תיבת דואר', count: 3 },
   ]
   const lists: Array<{ color: string; label: string; count: number }> = [
-    { color: 'amber', label: 'VIP', count: CLIENTS.filter((c) => c.tags.includes('vip')).length },
-    { color: 'rose', label: 'מאחרים בתשלום', count: CLIENTS.filter((c) => c.tags.includes('late')).length },
-    { color: 'emerald', label: 'חדשים החודש', count: CLIENTS.filter((c) => c.tags.includes('new')).length },
-    { color: 'violet', label: 'סיטונאים', count: CLIENTS.filter((c) => c.tags.includes('wholesale')).length },
+    { color: 'amber', label: 'VIP', count: clients.filter((c) => c.tags.includes('vip')).length },
+    {
+      color: 'rose',
+      label: 'מאחרים בתשלום',
+      count: clients.filter((c) => c.tags.includes('late')).length,
+    },
+    {
+      color: 'emerald',
+      label: 'חדשים החודש',
+      count: clients.filter((c) => c.tags.includes('new')).length,
+    },
+    {
+      color: 'violet',
+      label: 'סיטונאים',
+      count: clients.filter((c) => c.tags.includes('wholesale')).length,
+    },
   ]
   return (
     <aside className="sb">
@@ -328,6 +364,7 @@ function Toolbar({
   setView,
   total,
   selectedCount,
+  onNew,
 }: {
   q: string
   setQ: (s: string) => void
@@ -335,6 +372,7 @@ function Toolbar({
   setView: (v: View) => void
   total: number
   selectedCount: number
+  onNew: () => void
 }) {
   return (
     <div className="tlb">
@@ -374,7 +412,7 @@ function Toolbar({
           <Printer size={14} />
         </button>
         <span className="tlb-sep" />
-        <button className="btn btn-primary" type="button">
+        <button className="btn btn-primary" type="button" onClick={onNew}>
           <Plus size={14} />
           לקוח חדש
         </button>
@@ -394,8 +432,8 @@ function ClientsTable({
   toggleSel,
   toggleAll,
 }: {
-  clients: Client[]
-  previewId: string
+  clients: StoredClient[]
+  previewId: string | null
   onSelect: (id: string) => void
   onOpen: (id: string) => void
   selected: Set<string>
@@ -465,6 +503,13 @@ function ClientsTable({
               <td className="num">{c.lastPurchase}</td>
             </tr>
           ))}
+          {clients.length === 0 && (
+            <tr>
+              <td colSpan={8} style={{ textAlign: 'center', padding: 30, color: 'var(--t-3)' }}>
+                לא נמצאו לקוחות תואמים — נסה לשנות סינון או חיפוש
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -474,6 +519,7 @@ function ClientsTable({
 // ─── Preview pane ───────────────────────────────────────────────────────
 
 function ClientPreview({ id, onOpen }: { id: string | null; onOpen: (id: string) => void }) {
+  const { clients } = useClientsStore()
   if (!id) {
     return (
       <div className="prev empty">
@@ -483,7 +529,7 @@ function ClientPreview({ id, onOpen }: { id: string | null; onOpen: (id: string)
       </div>
     )
   }
-  const c = CLIENTS.find((x) => x.id === id)
+  const c = clients.find((x) => x.id === id)
   if (!c) return null
   const invs = INVOICES_BY_CLIENT[id] || INVOICES_DEFAULT
   const recs = RECEIPTS_BY_CLIENT[id] || RECEIPTS_DEFAULT
@@ -543,6 +589,13 @@ function ClientPreview({ id, onOpen }: { id: string | null; onOpen: (id: string)
                 <td className="end num">₪{fmt(Math.abs(iv.amount))}</td>
               </tr>
             ))}
+            {invs.length === 0 && (
+              <tr>
+                <td colSpan={4} style={{ color: 'var(--t-3)', textAlign: 'center' }}>
+                  —
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -561,6 +614,13 @@ function ClientPreview({ id, onOpen }: { id: string | null; onOpen: (id: string)
                 <td className="end num">₪{fmt(r.amount)}</td>
               </tr>
             ))}
+            {recs.length === 0 && (
+              <tr>
+                <td colSpan={4} style={{ color: 'var(--t-3)', textAlign: 'center' }}>
+                  —
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -574,19 +634,24 @@ function ClientDetail({
   client,
   tab,
   onTabChange,
+  onDeleted,
 }: {
-  client: Client
+  client: StoredClient
   tab: DetailTab
   onTabChange: (t: DetailTab) => void
+  onDeleted: () => void
 }) {
+  const { updateClient, deleteClient } = useClientsStore()
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const invs = INVOICES_BY_CLIENT[client.id] || INVOICES_DEFAULT
   const recs = RECEIPTS_BY_CLIENT[client.id] || RECEIPTS_DEFAULT
   const orders = ORDERS_BY_CLIENT[client.id] || []
   const activity = ACTIVITY_BY_CLIENT[client.id] || ACTIVITY_DEFAULT
-  const personal = PERSONAL[client.id]
   const totalDue = invs
     .filter((i) => i.status === 'open' || i.status === 'overdue')
     .reduce((s, i) => s + i.amount, 0)
+
+  const patch = (p: Partial<StoredClient>) => updateClient(client.id, p)
 
   return (
     <div className="detail">
@@ -608,9 +673,11 @@ function ClientDetail({
               <span style={{ color: 'var(--t-3)' }}>{client.address}</span>
             </div>
             <div className="dh-row3">
-              {client.tags.map((t) => (
-                <Tag key={t} slug={t} />
-              ))}
+              <EditableTags
+                tags={client.tags}
+                onSave={(tags) => patch({ tags })}
+                size="md"
+              />
             </div>
           </div>
         </div>
@@ -632,15 +699,21 @@ function ClientDetail({
           </div>
           <div className="kpi">
             <div className="kpi-l">סה״כ רכישות</div>
-            <div className="kpi-v">₪{fmt(personal?.totalPurchases ?? 0)}</div>
+            <div className="kpi-v">₪{fmt(client.totalPurchases ?? 0)}</div>
             <div className="kpi-s">מאז {client.joinDate.slice(6)}</div>
           </div>
         </div>
         <div className="dh-act">
-          <button className="btn" type="button">
-            <RefreshCw size={13} /> עדכון
+          <button
+            className="btn"
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            style={{ color: 'var(--r)', borderColor: 'var(--border)' }}
+            title="מחק לקוח"
+          >
+            <Trash2 size={13} /> מחק
           </button>
-          <button className="btn" type="button">
+          <button className="btn" type="button" title="עוד">
             <MoreHorizontal size={13} />
           </button>
         </div>
@@ -668,13 +741,40 @@ function ClientDetail({
       </div>
 
       <div className="dt-body">
-        {tab === 'general' && <GeneralTab client={client} />}
+        {tab === 'general' && <GeneralTab client={client} patch={patch} />}
         {tab === 'invoices' && <InvoicesTab invs={invs} />}
         {tab === 'receipts' && <ReceiptsTab recs={recs} />}
         {tab === 'orders' && <OrdersTab orders={orders} />}
-        {tab === 'notes' && <NotesTab note={client.notes} />}
+        {tab === 'notes' && <NotesTab note={client.notes} onSave={(v) => patch({ notes: v })} />}
         {tab === 'activity' && <ActivityTab activity={activity} />}
       </div>
+
+      {confirmDelete && (
+        <div className="confirm-back" onClick={() => setConfirmDelete(false)}>
+          <div className="confirm-box" onClick={(e) => e.stopPropagation()}>
+            <h3>למחוק את הלקוח?</h3>
+            <p>
+              {fullName(client)} (#{client.no}) — פעולה זו לא ניתנת לביטול.
+            </p>
+            <div className="confirm-actions">
+              <button className="dlg-btn" onClick={() => setConfirmDelete(false)} type="button">
+                ביטול
+              </button>
+              <button
+                className="dlg-btn dlg-btn-danger"
+                onClick={() => {
+                  deleteClient(client.id)
+                  setConfirmDelete(false)
+                  onDeleted()
+                }}
+                type="button"
+              >
+                מחק
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -695,55 +795,92 @@ function DtTab({
   )
 }
 
-function GeneralTab({ client }: { client: Client }) {
-  const personal = PERSONAL[client.id]
+function GeneralTab({
+  client,
+  patch,
+}: {
+  client: StoredClient
+  patch: (p: Partial<StoredClient>) => void
+}) {
   return (
     <div className="tab-g-grid">
       <div className="tab-g-card">
         <div className="tab-g-h">פרטי קשר</div>
         <Fld l="טלפון">
-          <a href={`tel:${client.phone}`}>{client.phone}</a>
+          <EditableText value={client.phone} onSave={(v) => patch({ phone: v })} type="tel" />
         </Fld>
         <Fld l="אימייל">
-          <a href={`mailto:${client.email}`} className="email-cell">
-            {client.email}
-          </a>
+          <EditableText value={client.email} onSave={(v) => patch({ email: v })} type="email" />
         </Fld>
-        <Fld l="כתובת">{client.address}</Fld>
-        <Fld l="תאריך לידה">{personal?.birthDate ?? '—'}</Fld>
+        <Fld l="כתובת">
+          <EditableText value={client.address} onSave={(v) => patch({ address: v })} />
+        </Fld>
+        <Fld l="תאריך לידה">
+          <EditableText value={client.birthDate || ''} onSave={(v) => patch({ birthDate: v })} />
+        </Fld>
       </div>
 
       <div className="tab-g-card">
         <div className="tab-g-h">בן/בת זוג</div>
-        <Fld l="שם">{personal?.spouseName || '—'}</Fld>
-        <Fld l="טלפון">
-          {personal?.spousePhone ? <a href={`tel:${personal.spousePhone}`}>{personal.spousePhone}</a> : '—'}
+        <Fld l="שם">
+          <EditableText value={client.spouseName || ''} onSave={(v) => patch({ spouseName: v })} />
         </Fld>
-        <Fld l="תאריך לידה">{personal?.spouseBirth || '—'}</Fld>
-        <Fld l="יום נישואין">{personal?.anniversary || '—'}</Fld>
+        <Fld l="טלפון">
+          <EditableText
+            value={client.spousePhone || ''}
+            onSave={(v) => patch({ spousePhone: v })}
+            type="tel"
+          />
+        </Fld>
+        <Fld l="תאריך לידה">
+          <EditableText
+            value={client.spouseBirth || ''}
+            onSave={(v) => patch({ spouseBirth: v })}
+          />
+        </Fld>
+        <Fld l="יום נישואין">
+          <EditableText
+            value={client.anniversary || ''}
+            onSave={(v) => patch({ anniversary: v })}
+          />
+        </Fld>
       </div>
 
       <div className="tab-g-card">
         <div className="tab-g-h">פיננסי</div>
-        <Fld l="ח.פ / עוסק">{client.taxId}</Fld>
-        <Fld l="תנאי תשלום">{client.terms}</Fld>
-        <Fld l="מסגרת אשראי">₪{fmt(client.creditLimit)}</Fld>
-        <Fld l="מנהל לקוח">{client.owner}</Fld>
+        <Fld l="ח.פ / עוסק">
+          <EditableText value={client.taxId} onSave={(v) => patch({ taxId: v })} />
+        </Fld>
+        <Fld l="תנאי תשלום">
+          <EditableText value={client.terms} onSave={(v) => patch({ terms: v })} />
+        </Fld>
+        <Fld l="מסגרת אשראי">
+          <EditableNumber
+            value={client.creditLimit}
+            onSave={(n) => patch({ creditLimit: n })}
+            prefix="₪"
+          />
+        </Fld>
+        <Fld l="מנהל לקוח">
+          <EditableText value={client.owner} onSave={(v) => patch({ owner: v })} />
+        </Fld>
       </div>
 
       <div className="tab-g-card">
         <div className="tab-g-h">פרטי חברה</div>
-        <Fld l="שם חברה">{client.companyName}</Fld>
-        <Fld l="עיר">{client.city}</Fld>
-        <Fld l="מקור הגעה">{personal?.source ?? '—'}</Fld>
+        <Fld l="שם חברה">
+          <EditableText
+            value={client.companyName}
+            onSave={(v) => patch({ companyName: v })}
+          />
+        </Fld>
+        <Fld l="עיר">
+          <EditableText value={client.city} onSave={(v) => patch({ city: v })} />
+        </Fld>
+        <Fld l="מקור הגעה">
+          <EditableText value={client.source || ''} onSave={(v) => patch({ source: v })} />
+        </Fld>
         <Fld l="הצטרף">{client.joinDate}</Fld>
-      </div>
-
-      <div className="tab-g-card tab-g-wide">
-        <div className="tab-g-h">הערות</div>
-        <div style={{ fontSize: 12.5, color: 'var(--t-2)', lineHeight: 1.6, padding: '4px 0' }}>
-          {client.notes || '— אין הערות —'}
-        </div>
       </div>
     </div>
   )
@@ -824,6 +961,13 @@ function InvoicesTab({ invs }: { invs: typeof INVOICES_DEFAULT }) {
                 </td>
               </tr>
             ))}
+            {invs.length === 0 && (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--t-3)' }}>
+                  אין חשבוניות
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -860,6 +1004,13 @@ function ReceiptsTab({ recs }: { recs: typeof RECEIPTS_DEFAULT }) {
               </td>
             </tr>
           ))}
+          {recs.length === 0 && (
+            <tr>
+              <td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--t-3)' }}>
+                אין קבלות
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -921,6 +1072,13 @@ function OrdersTab({ orders }: { orders: NonNullable<typeof ORDERS_BY_CLIENT[str
                 </td>
               </tr>
             ))}
+            {orders.length === 0 && (
+              <tr>
+                <td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--t-3)' }}>
+                  אין הזמנות / תיקונים
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -928,11 +1086,36 @@ function OrdersTab({ orders }: { orders: NonNullable<typeof ORDERS_BY_CLIENT[str
   )
 }
 
-function NotesTab({ note }: { note: string }) {
+function NotesTab({ note, onSave }: { note: string; onSave: (v: string) => void }) {
+  const [draft, setDraft] = useState(note)
+  const dirty = draft !== note
   return (
     <div className="tab-notes">
       <div className="tab-g-h">הערות פנימיות</div>
-      <textarea className="tab-notes-ta" defaultValue={note} placeholder="כתוב הערה…" />
+      <textarea
+        className="tab-notes-ta"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="כתוב הערה…"
+      />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10, gap: 6 }}>
+        <button
+          className="btn"
+          type="button"
+          disabled={!dirty}
+          onClick={() => setDraft(note)}
+        >
+          ביטול
+        </button>
+        <button
+          className="btn btn-primary"
+          type="button"
+          disabled={!dirty}
+          onClick={() => onSave(draft)}
+        >
+          שמור
+        </button>
+      </div>
     </div>
   )
 }

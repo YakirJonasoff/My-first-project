@@ -33,7 +33,9 @@ import {
   TAG_HE,
   type Client,
 } from '@/data/clientsMockData'
+import DesktopView from './DesktopView'
 import './clients-mobile.css'
+import './clients-desktop.css'
 
 type DetailTab = 'general' | 'invoices' | 'receipts' | 'orders' | 'notes' | 'activity'
 
@@ -70,7 +72,20 @@ function Avatar({ first, last, id, size = 40 }: { first: string; last: string; i
   )
 }
 
-export default function ClientsMobilePage() {
+export default function ClientsPage() {
+  return (
+    <>
+      <div className="show-desktop">
+        <DesktopView />
+      </div>
+      <div className="show-mobile">
+        <MobileApp />
+      </div>
+    </>
+  )
+}
+
+function MobileApp() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tab, setTab] = useState<DetailTab>('general')
   const [query, setQuery] = useState('')
@@ -479,9 +494,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function InvoicesPane({ invoices }: { invoices: ReturnType<typeof Object>[] | typeof INVOICES_DEFAULT }) {
-  const list = invoices as typeof INVOICES_DEFAULT
-  const open = list.filter((r) => r.status === 'open' || r.status === 'overdue')
+function InvoicesPane({ invoices }: { invoices: typeof INVOICES_DEFAULT }) {
+  const open = invoices.filter((r) => r.status === 'open' || r.status === 'overdue')
   const totalOpen = open.reduce((s, r) => s + r.amount, 0)
 
   return (
@@ -499,7 +513,7 @@ function InvoicesPane({ invoices }: { invoices: ReturnType<typeof Object>[] | ty
 
       <div className="mob-sh">חשבוניות</div>
       <div className="mob-doc-list">
-        {list.map((r) => (
+        {invoices.map((r) => (
           <div key={r.id} className="mob-doc">
             <div style={{ minWidth: 0 }}>
               <div className="mob-doc-id">

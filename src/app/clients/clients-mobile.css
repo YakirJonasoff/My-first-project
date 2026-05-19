@@ -2,7 +2,7 @@
    Ported from the design handoff bundle (Clients Mobile.html). */
 
 .mob-page {
-  min-height: calc(100vh - 64px);
+  min-height: 100vh;
   background: #1a1a1f;
   display: flex;
   align-items: flex-start;
